@@ -46,8 +46,21 @@ from djsupervisor.events import CallbackModifiedHandler
 
 AUTORELOAD_PATTERNS = getattr(settings, "SUPERVISOR_AUTORELOAD_PATTERNS",
                               ['*.py'])
-AUTORELOAD_IGNORE = getattr(settings, "SUPERVISOR_AUTORELOAD_IGNORE_PATTERNS", 
+AUTORELOAD_IGNORE = getattr(settings, "SUPERVISOR_AUTORELOAD_IGNORE_PATTERNS",
                             [".*", "#*", "*~"])
+
+# When set to True, only uses the PollingObserver,
+# which works even with filesystem such as VMware's HGFS,
+# and may be more responsive with filesystems such as NFS.
+AUTORELOAD_POLL_ONLY = getattr(settings, "SUPERVISOR_AUTORELOAD_POLL_ONLY",
+                               False)
+
+# When using the PollingObserver in particular,
+# you can raise the timeout to reduce CPU usage,
+# at the expense of higher latency.
+AUTORELOAD_TIMEOUT = getattr(settings, "SUPERVISOR_AUTORELOAD_TIMEOUT",
+                               1)
+
 
 class Command(BaseCommand):
 
@@ -238,10 +251,19 @@ class Command(BaseCommand):
         # This will avoid errors with e.g. too many inotify watches.
         from watchdog.observers import Observer
         from watchdog.observers.polling import PollingObserver
-        
+
         observer = None
-        for ObserverCls in (Observer, PollingObserver):
-            observer = ObserverCls()
+        if AUTORELOAD_POLL_ONLY:
+            observer_classes_and_kwargs = [
+                (PollingObserver, {'timeout': AUTORELOAD_TIMEOUT}),
+            ]
+        else:
+            observer_classes_and_kwargs = [
+                (Observer, {}),
+                (PollingObserver, {'timeout': AUTORELOAD_TIMEOUT}),
+            ]
+        for ObserverCls, kwargs in observer_classes_and_kwargs:
+            observer = ObserverCls(**kwargs)
             try:
                 for live_dir in set(live_dirs):
                     observer.schedule(handler, live_dir, True)
